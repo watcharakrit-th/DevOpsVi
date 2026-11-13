@@ -23,5 +23,8 @@ Run the server: the app listens on 8080, probes and metrics on 9090. Set
 
 ```bash
 OPS_ADDR=127.0.0.1:19090 cargo run
-curl -s -X POST localhost:8080/api/lobbies
 ```
+
+Open http://localhost:8080, start a game, and open the invite link in a
+second tab to play the other side. The page is compiled into the binary, so
+restart `cargo run` after editing files in `app/static/`.

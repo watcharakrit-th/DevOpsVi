@@ -24,8 +24,16 @@ pub fn router() -> Router<AppState> {
         .route("/api/lobbies/{code}/join", post(join))
         .route("/api/lobbies/{code}/move", post(play))
         .route("/api/lobbies/{code}/rematch", post(rematch))
-        .fallback(|| async { ApiError::NotFound })
-        .method_not_allowed_fallback(|| async { ApiError::MethodNotAllowed })
+}
+
+/// For paths no route matches, on the whole app port.
+pub async fn not_found() -> ApiError {
+    ApiError::NotFound
+}
+
+/// For a known path with the wrong method, on the whole app port.
+pub async fn method_not_allowed() -> ApiError {
+    ApiError::MethodNotAllowed
 }
 
 #[derive(Serialize)]
