@@ -2,20 +2,8 @@
 
 mod common;
 
-use axum::{Router, http::StatusCode};
+use axum::http::StatusCode;
 use common::*;
-
-async fn scrape(ops: &Router) -> String {
-    let reply = call(ops, "GET", "/metrics", None, None).await;
-    assert_eq!(reply.status, StatusCode::OK);
-    assert!(
-        reply.headers["content-type"]
-            .to_str()
-            .unwrap()
-            .starts_with("text/plain; version=0.0.4")
-    );
-    reply.body.as_str().unwrap().to_owned()
-}
 
 #[tokio::test]
 async fn livez_is_200_even_without_redis() {
