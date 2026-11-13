@@ -164,6 +164,19 @@ pub async fn rematch(app: &Router, code: &str, token: &str, version: u64) -> Rep
     .await
 }
 
+/// The metrics page from the ops port, as text.
+pub async fn scrape(ops: &Router) -> String {
+    let reply = call(ops, "GET", "/metrics", None, None).await;
+    assert_eq!(reply.status, StatusCode::OK);
+    assert!(
+        reply.headers["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/plain; version=0.0.4")
+    );
+    reply.body.as_str().unwrap().to_owned()
+}
+
 /// From a fresh game at `version`, X takes the top row. Returns the version
 /// afterwards.
 pub async fn x_wins(app: &Router, code: &str, x: &str, o: &str, version: u64) -> u64 {

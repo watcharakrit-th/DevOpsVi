@@ -7,6 +7,7 @@ pub mod lobby;
 pub mod logging;
 pub mod metrics;
 pub mod ops;
+pub mod page;
 pub mod store;
 
 use axum::{
@@ -35,9 +36,13 @@ impl AppState {
     }
 }
 
-/// Port 8080: the API, and from phase 3 the page.
+/// Port 8080: the page and the API.
 pub fn app(state: AppState) -> Router {
     api::router()
+        .merge(page::router())
+        .fallback(api::not_found)
+        // Last among the routes: it only covers routes added before it.
+        .method_not_allowed_fallback(api::method_not_allowed)
         .layer(DefaultBodyLimit::max(BODY_LIMIT_BYTES))
         .layer(middleware::from_fn_with_state(
             state.metrics.clone(),

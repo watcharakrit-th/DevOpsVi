@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiniArcade · XO</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main>
+    <h1>MiniArcade <span class="game">XO</span></h1>
+
+    <section id="start" hidden>
+      <p id="intro">Two players, one board. Start a game, then send the link to a friend.</p>
+      <button id="new-game" type="button">New game</button>
+    </section>
+
+    <section id="lobby" hidden>
+      <p id="status" class="status" aria-live="polite"></p>
+      <p id="role" class="role"></p>
+      <div id="invite" class="invite" hidden>
+        <label for="invite-link">Invite link</label>
+        <div class="invite-row">
+          <input id="invite-link" type="text" readonly>
+          <button id="copy-link" type="button">Copy</button>
+        </div>
+      </div>
+      <div id="board" class="board" role="group" aria-label="Board"></div>
+      <button id="rematch" type="button" hidden>Rematch</button>
+    </section>
+
+    <p id="notice" class="notice" role="alert" hidden></p>
+  </main>
+</body>
+</html>

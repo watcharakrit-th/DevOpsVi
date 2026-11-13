@@ -1,0 +1,158 @@
+/* MiniArcade page. The CSP allows no inline styles, so all styling is here. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f4f5f9;
+  --card: #ffffff;
+  --text: #1c2230;
+  --muted: #5d6677;
+  --line: #d4d8e2;
+  --accent: #2f64e0;
+  --x: #c2255c;
+  --o: #1971c2;
+  --alert: #c92a2a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c;
+    --card: #1b2029;
+    --text: #e7eaf0;
+    --muted: #9aa3b4;
+    --line: #2e3542;
+    --accent: #6b9bff;
+    --x: #ff7aa2;
+    --o: #66b2ff;
+    --alert: #ff8787;
+  }
+}
+
+/* The script shows and hides sections with the hidden attribute; this keeps
+   display rules below from overriding it. */
+[hidden] {
+  display: none !important;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+main {
+  width: min(100% - 32px, 400px);
+  margin: 40px auto;
+}
+
+h1 {
+  margin: 0 0 24px;
+  font-size: 1.6rem;
+}
+
+h1 .game {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+button {
+  padding: 10px 20px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+button:disabled:not(.cell) {
+  opacity: 0.6;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.status {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.role {
+  margin: 4px 0 20px;
+  color: var(--muted);
+}
+
+.invite {
+  margin-bottom: 20px;
+}
+
+.invite label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.invite-row {
+  display: flex;
+  gap: 8px;
+}
+
+.invite input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.cell {
+  aspect-ratio: 1;
+  padding: 0;
+  border-color: var(--line);
+  background: var(--card);
+  color: var(--text);
+  font-size: clamp(2.2rem, 14vw, 3.6rem);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.my-turn .cell:enabled:hover {
+  border-color: var(--accent);
+}
+
+.cell.x {
+  color: var(--x);
+}
+
+.cell.o {
+  color: var(--o);
+}
+
+.notice {
+  color: var(--alert);
+}
