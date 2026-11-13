@@ -1,0 +1,5 @@
+# Pins the compiler for this crate; rustup installs it on first use.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
