@@ -41,6 +41,18 @@ pub enum MoveError {
     CellTaken,
 }
 
+/// Every line that wins: three rows, three columns and two diagonals.
+const LINES: [[usize; 3]; 8] = [
+    [0, 1, 2],
+    [3, 4, 5],
+    [6, 7, 8],
+    [0, 3, 6],
+    [1, 4, 7],
+    [2, 5, 8],
+    [0, 4, 8],
+    [2, 4, 6],
+];
+
 /// One game of XO.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Game {
@@ -60,17 +72,45 @@ impl Game {
 
     /// How the game stands.
     pub fn status(&self) -> Status {
-        todo!()
+        let winner = LINES.iter().find_map(|&[a, b, c]| {
+            let mark = self.cells[a]?;
+            (self.cells[b] == Some(mark) && self.cells[c] == Some(mark)).then_some(mark)
+        });
+        match winner {
+            Some(Mark::X) => Status::XWon,
+            Some(Mark::O) => Status::OWon,
+            None if self.cells.iter().all(Option::is_some) => Status::Draw,
+            None => Status::Playing,
+        }
     }
 
     /// Whose turn it is, or `None` once the game is over.
     pub fn turn(&self) -> Option<Mark> {
-        todo!()
+        if self.status() != Status::Playing {
+            return None;
+        }
+        let count = |mark| self.cells.iter().filter(|&&c| c == Some(mark)).count();
+        // X moves first, so equal counts mean X is next.
+        if count(Mark::X) == count(Mark::O) {
+            Some(Mark::X)
+        } else {
+            Some(Mark::O)
+        }
     }
 
     /// Puts `mark` on `cell` and returns how the game stands afterwards.
-    pub fn play(&mut self, _mark: Mark, _cell: usize) -> Result<Status, MoveError> {
-        todo!()
+    pub fn play(&mut self, mark: Mark, cell: usize) -> Result<Status, MoveError> {
+        match self.turn() {
+            None => return Err(MoveError::GameOver),
+            Some(turn) if turn != mark => return Err(MoveError::NotYourTurn),
+            Some(_) => {}
+        }
+        let slot = self.cells.get_mut(cell).ok_or(MoveError::InvalidCell)?;
+        if slot.is_some() {
+            return Err(MoveError::CellTaken);
+        }
+        *slot = Some(mark);
+        Ok(self.status())
     }
 }
 
