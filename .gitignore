@@ -5,6 +5,8 @@ target/
 .terraform/
 *.tfstate
 *.tfstate.*
+# Saved plans can hold variable values such as the alert email
+*.tfplan
 crash.log
 crash.*.log
 # tfvars live in ~/.miniarcade/; this only catches a stray copy
