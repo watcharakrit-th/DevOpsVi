@@ -1,0 +1,10 @@
+# Written by infra/ansible; k3s reads it at start. Traefik, ServiceLB and
+# local-path storage stay on (k3s defaults).
+
+# kubectl reaches the API at the node's public IP, so the certificate names it.
+tls-san:
+  - "{{ node_ip }}"
+# Secrets are encrypted at rest in the datastore. This must be set before
+# k3s first starts.
+secrets-encryption: true
+write-kubeconfig-mode: "0600"

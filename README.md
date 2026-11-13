@@ -38,3 +38,46 @@ docker run --rm -p 8080:8080 -e REDIS_URL=redis://host.docker.internal:6379 mini
 
 The app drains for 5 s on SIGTERM, so stop it with `docker stop -t 10`; a
 shorter timeout kills it mid-drain.
+
+## AWS, once
+
+This needs the AWS CLI v2 with an IAM Identity Center profile named
+`miniarcade` (region ap-southeast-1). Log in with
+`aws sso login --profile miniarcade`.
+
+1. Put the alert address in a local-only file:
+
+   ```bash
+   mkdir -p -m 700 ~/.miniarcade
+   (umask 077; echo 'alert_email = "<ALERT_EMAIL>"' > ~/.miniarcade/bootstrap.tfvars)
+   ```
+
+2. Apply the bootstrap root, once. It creates the ECR repository, the GitHub
+   OIDC role and the $20 budget:
+
+   ```bash
+   cd infra/bootstrap
+   export AWS_PROFILE=miniarcade
+   terraform init
+   terraform apply -var-file="$HOME/.miniarcade/bootstrap.tfvars"
+   ```
+
+3. Give the release pipeline its three repository variables:
+
+   ```bash
+   gh variable set AWS_REGION   --body "$(terraform output -raw aws_region)"
+   gh variable set AWS_ROLE_ARN --body "$(terraform output -raw aws_role_arn)"
+   gh variable set ECR_REGISTRY --body "$(terraform output -raw ecr_registry)"
+   ```
+
+## Each session
+
+```bash
+aws sso login --profile miniarcade
+ops/up.sh      # creates the node and k3s; prints http://<NODE_IP>/ and the kubectl setup
+ops/down.sh    # destroys the cluster; bootstrap stays
+```
+
+`ops/up.sh` is safe to re-run, for example when your IP changes: SSH and the
+Kubernetes API accept only `<MY_IP>`. Its first run creates an SSH key and
+`~/.miniarcade/cluster.tfvars`.

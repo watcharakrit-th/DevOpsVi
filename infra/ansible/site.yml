@@ -1,0 +1,133 @@
+---
+# Turns the fresh Ubuntu node into a single-node k3s cluster that pulls from
+# ECR with its instance profile, then writes ~/.miniarcade/kubeconfig. Safe to
+# re-run: each step only acts when something differs.
+- name: Set up the MiniArcade node
+  hosts: node
+  become: true
+  gather_facts: false
+  vars:
+    k3s_version: v1.37.2+k3s1
+    k3s_install_script_sha256: ed01f89fd977bf20ac1516bbebf8370bf3ddbaa55dac8aba610956a4c78cc00b
+    ecr_credential_provider_version: v1.37.0
+    ecr_credential_provider_sha256: 842e0fd8159f5ed8df2f38e6521e1e4f0a1ee80cf1e1ac119bbf20bf9c20681c
+    # Kubernetes' release bucket; the GitHub release has no binaries.
+    k8s_artifacts: https://storage.googleapis.com/k8s-artifacts-prod/binaries
+    ecr_credential_provider_url: >-
+      {{ k8s_artifacts }}/cloud-provider-aws/{{ ecr_credential_provider_version }}/linux/amd64/ecr-credential-provider-linux-amd64
+    # k3s hands these paths to the kubelet automatically when they exist.
+    credential_provider_dir: /var/lib/rancher/credentialprovider
+    local_kubeconfig: "{{ lookup('ansible.builtin.env', 'HOME') }}/.miniarcade/kubeconfig"
+
+  pre_tasks:
+    - name: Wait for SSH (a new instance needs a minute to boot)
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+  tasks:
+    - name: Check which k3s is installed
+      ansible.builtin.command: /usr/local/bin/k3s --version
+      register: k3s_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Create the credential provider and k3s config directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ credential_provider_dir }}/bin"
+        - /etc/rancher/k3s
+
+    - name: Install the ECR credential provider
+      ansible.builtin.get_url:
+        url: "{{ ecr_credential_provider_url }}"
+        checksum: "sha256:{{ ecr_credential_provider_sha256 }}"
+        dest: "{{ credential_provider_dir }}/bin/ecr-credential-provider"
+        mode: "0755"
+      notify: Restart k3s
+
+    - name: Configure the kubelet credential provider for ECR
+      ansible.builtin.copy:
+        src: credential-provider.yaml
+        dest: "{{ credential_provider_dir }}/config.yaml"
+        mode: "0644"
+      notify: Restart k3s
+
+    - name: Write the k3s config
+      ansible.builtin.template:
+        src: k3s-config.yaml.j2
+        dest: /etc/rancher/k3s/config.yaml
+        mode: "0600"
+      notify: Restart k3s
+
+    # The installer comes from the release tag, checked against a pinned
+    # sha256; it then verifies the k3s binary against the release checksums.
+    - name: Download the k3s installer
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/k3s-io/k3s/{{ k3s_version }}/install.sh"
+        checksum: "sha256:{{ k3s_install_script_sha256 }}"
+        dest: /usr/local/share/k3s-install.sh
+        mode: "0700"
+      when: k3s_version not in k3s_installed.stdout
+
+    - name: Install k3s
+      ansible.builtin.command: sh /usr/local/share/k3s-install.sh
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+      when: k3s_version not in k3s_installed.stdout
+      changed_when: true
+
+    - name: Apply config changes before waiting on the cluster
+      ansible.builtin.meta: flush_handlers
+
+    # argv, not a command string: a string is split like a shell line, which
+    # strips the quotes the jsonpath filter needs.
+    - name: Wait for the node to be Ready
+      ansible.builtin.command:
+        argv:
+          - k3s
+          - kubectl
+          - get
+          - nodes
+          - -o
+          - jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}
+      register: node_ready
+      until: node_ready.stdout == "True"
+      retries: 60
+      delay: 5
+      changed_when: false
+
+    - name: Wait for Traefik, which serves port 80
+      ansible.builtin.command: k3s kubectl -n kube-system rollout status deployment/traefik --timeout=10s
+      register: traefik
+      until: traefik.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Read the cluster's kubeconfig
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      register: kubeconfig
+
+    - name: Write ~/.miniarcade/kubeconfig, pointing at the node's public IP
+      ansible.builtin.copy:
+        content: "{{ kubeconfig.content | b64decode | replace('https://127.0.0.1:6443', 'https://' ~ node_ip ~ ':6443') }}"
+        dest: "{{ local_kubeconfig }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+  handlers:
+    # A fresh install starts k3s with the new files anyway; only a running k3s
+    # needs a restart to pick up changes.
+    - name: Restart k3s
+      ansible.builtin.systemd_service:
+        name: k3s
+        state: restarted
+      when: k3s_version in k3s_installed.stdout
