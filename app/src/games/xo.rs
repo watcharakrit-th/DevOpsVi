@@ -12,8 +12,10 @@
 //! whose turn it is and how the game stands. [`Game`] therefore stores only
 //! the board, and a stored game can't contradict itself.
 
+use serde::{Deserialize, Serialize};
+
 /// A player's mark.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mark {
     X,
     O,
@@ -53,8 +55,9 @@ const LINES: [[usize; 3]; 8] = [
     [2, 4, 6],
 ];
 
-/// One game of XO.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// One game of XO. Serializes as just the board.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Game {
     cells: [Option<Mark>; 9],
 }
