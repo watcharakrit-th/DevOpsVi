@@ -1,0 +1,15 @@
+# Rust build output
+target/
+
+# Terraform: both roots keep their state locally, outside Git
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+# tfvars live in ~/.miniarcade/; this only catches a stray copy
+*.tfvars
+*.tfvars.json
+
+# Ansible
+*.retry
