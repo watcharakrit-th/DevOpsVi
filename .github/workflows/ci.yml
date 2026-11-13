@@ -1,0 +1,154 @@
+# CI for every pull request to main. The three jobs are the main-branch
+# ruleset's required checks, so they always run: no path filters.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+# No token permissions by default; each job asks for what it needs.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: rust
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    services:
+      redis:
+        image: redis:8.10.3-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    env:
+      CARGO_TERM_COLOR: always
+      REDIS_URL: redis://127.0.0.1:6379
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust toolchain from rust-toolchain.toml, plus llvm-tools for coverage
+        run: |
+          rustup toolchain install
+          rustup component add llvm-tools
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: app
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Unit and Redis integration tests, failing below 70% line coverage
+        run: cargo llvm-cov --locked --fail-under-lines 70
+
+  security:
+    name: security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # Trivy runs from its pinned image, so the same commands work locally.
+      TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # --ignore-unfixed applies to vulnerabilities only: a CRITICAL
+      # misconfiguration or secret fails either way.
+      - name: Trivy on the repository (dependencies, misconfigurations, secrets)
+        run: >-
+          docker run --rm -v "$PWD:/src" -w /src -v trivy-cache:/root/.cache/trivy "$TRIVY_IMAGE"
+          fs --scanners vuln,misconfig,secret --severity CRITICAL --ignore-unfixed --exit-code 1 .
+      - name: Build the image
+        run: docker build --tag miniarcade:ci app
+      - name: Trivy on the image
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/trivy "$TRIVY_IMAGE"
+          image --severity CRITICAL --ignore-unfixed --exit-code 1 miniarcade:ci
+
+  infra:
+    name: infra
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      # The Kubernetes version of the k3s release that infra/ansible installs.
+      KUBERNETES_VERSION: 1.37.2
+      # Schemas for the CRDs in deploy/ (Application, ServiceMonitor,
+      # PrometheusRule), from a fixed commit of the catalog.
+      CRDS_CATALOG: https://raw.githubusercontent.com/datreeio/CRDs-catalog/89c736bdde38b5fecd0f8436ec5f3aa3679a3b86
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Each check is skipped until its folder exists (phases 5 to 7 add them).
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: hashFiles('infra/bootstrap/*.tf', 'infra/cluster/*.tf') != ''
+        with:
+          terraform_version: 1.17.2
+          terraform_wrapper: false
+      - name: terraform fmt
+        if: hashFiles('infra/bootstrap/*.tf', 'infra/cluster/*.tf') != ''
+        run: terraform fmt -check -recursive infra
+      - name: terraform validate (bootstrap)
+        if: hashFiles('infra/bootstrap/*.tf') != ''
+        working-directory: infra/bootstrap
+        run: terraform init -backend=false -input=false && terraform validate
+      - name: terraform validate (cluster)
+        if: hashFiles('infra/cluster/*.tf') != ''
+        working-directory: infra/cluster
+        run: terraform init -backend=false -input=false && terraform validate
+
+      # ansible-core 2.21.x: 2.22 needs Python 3.13, and Ubuntu 24.04 (this
+      # runner and the WSL setup) ships 3.12.
+      - name: ansible-lint
+        if: hashFiles('infra/ansible/**') != ''
+        run: |
+          python3 -m venv "$RUNNER_TEMP/lint"
+          "$RUNNER_TEMP/lint/bin/pip" install --quiet ansible-lint==26.11.0 ansible-core==2.21.6
+          "$RUNNER_TEMP/lint/bin/ansible-lint" infra/ansible
+
+      - name: kustomize build deploy/, checked by kubeconform
+        if: hashFiles('deploy/kustomization.yaml') != ''
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
+          curl -fsSLo kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          sha256sum -c <<'EOF'
+          cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61  kustomize.tar.gz
+          9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883  kubeconform.tar.gz
+          EOF
+          tar -xzf kustomize.tar.gz kustomize
+          tar -xzf kubeconform.tar.gz kubeconform
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/kustomize" build deploy | "$RUNNER_TEMP/kubeconform" -strict -summary \
+            -kubernetes-version "$KUBERNETES_VERSION" \
+            -schema-location default \
+            -schema-location "$CRDS_CATALOG/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+
+      - name: shellcheck ops/*.sh
+        if: hashFiles('ops/*.sh') != ''
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLo shellcheck.tar.xz https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  shellcheck.tar.xz" | sha256sum -c
+          tar -xJf shellcheck.tar.xz
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" ops/*.sh

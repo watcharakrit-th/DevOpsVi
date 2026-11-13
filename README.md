@@ -28,3 +28,13 @@ OPS_ADDR=127.0.0.1:19090 cargo run
 Open http://localhost:8080, start a game, and open the invite link in a
 second tab to play the other side. The page is compiled into the binary, so
 restart `cargo run` after editing files in `app/static/`.
+
+Build and run the container image (distroless, runs as UID 65532):
+
+```bash
+docker build --tag miniarcade app
+docker run --rm -p 8080:8080 -e REDIS_URL=redis://host.docker.internal:6379 miniarcade
+```
+
+The app drains for 5 s on SIGTERM, so stop it with `docker stop -t 10`; a
+shorter timeout kills it mid-drain.

@@ -1,0 +1,7 @@
+# Send the build only what it needs; anything else (target/, tests/, stray
+# local files) stays out of the build context.
+*
+!Cargo.toml
+!Cargo.lock
+!src/
+!static/
