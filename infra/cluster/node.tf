@@ -60,20 +60,18 @@ resource "aws_iam_instance_profile" "node" {
   role = aws_iam_role.node.name
 }
 
+# m7i-flex rather than the spec's t3.large: a t3 in standard credit mode starts
+# with no CPU credits and never earns any under this stack (k3s, Argo CD,
+# monitoring), so it stays capped at its 30% baseline, 0.6 of 2 vCPUs.
+# m7i-flex has no credits to run out and bills no surplus.
 resource "aws_instance" "node" {
   ami                         = data.aws_ssm_parameter.ubuntu.insecure_value
-  instance_type               = "t3.large"
+  instance_type               = "m7i-flex.large"
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.node.id]
   associate_public_ip_address = true
   key_name                    = aws_key_pair.node.key_name
   iam_instance_profile        = aws_iam_instance_profile.node.name
-
-  # Standard mode: when CPU credits run out the node slows down rather than
-  # billing for surplus credits.
-  credit_specification {
-    cpu_credits = "standard"
-  }
 
   # IMDSv2 only, with a hop limit of 1. A pod's requests take one hop more
   # than the node's own, so pods can't fetch the node's IAM credentials.
