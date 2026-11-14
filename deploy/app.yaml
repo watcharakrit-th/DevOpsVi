@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miniarcade
+  namespace: miniarcade
+  labels:
+    app.kubernetes.io/name: miniarcade
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: miniarcade
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # A new pod must be Ready before an old one goes, so a release never
+      # drops below two serving pods.
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: miniarcade
+    spec:
+      automountServiceAccountToken: false
+      # Room for the app's 5 s drain plus finishing in-flight requests.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: miniarcade
+          # Name and tag both come from the images block in kustomization.yaml.
+          image: miniarcade:unreleased
+          env:
+            - name: REDIS_URL
+              value: redis://redis.miniarcade.svc.cluster.local:6379
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: ops
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: ops
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: ops
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miniarcade
+  namespace: miniarcade
+  labels:
+    app.kubernetes.io/name: miniarcade
+spec:
+  selector:
+    app.kubernetes.io/name: miniarcade
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    # Inside the cluster only, for Prometheus; the Ingress routes http alone.
+    - name: ops
+      port: 9090
+      targetPort: ops

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: miniarcade
+  labels:
+    # The API server itself rejects pods here that break the restricted
+    # profile (root, privilege escalation, extra capabilities, no seccomp).
+    pod-security.kubernetes.io/enforce: restricted
