@@ -12,5 +12,5 @@ resources:
 - apps/alloy.yaml
 images:
 - name: miniarcade
-  newName: <AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com/miniarcade
-  newTag: unreleased
+  newName: 724772086096.dkr.ecr.ap-southeast-1.amazonaws.com/miniarcade
+  newTag: 853478a
