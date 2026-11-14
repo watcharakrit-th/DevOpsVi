@@ -23,11 +23,13 @@ data "aws_iam_policy_document" "github_trust" {
     }
 
     # Exactly this repository's main branch. Pull requests, other branches,
-    # forks and jobs in a GitHub Environment carry other subjects.
+    # forks and jobs in a GitHub Environment carry other subjects. GitHub's
+    # immutable subject names the owner and repository by ID as well, so a
+    # renamed or recreated repository can't match either.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
+      values   = ["${var.github_sub_prefix}:ref:refs/heads/main"]
     }
   }
 }
