@@ -14,8 +14,10 @@ variable "alert_email" {
   }
 }
 
-variable "github_repository" {
-  description = "The repository whose main branch may use the GitHub Actions role."
+# GitHub reports it with:
+#   gh api repos/watcharakrit-th/DevOpsVi/actions/oidc/customization/sub
+variable "github_sub_prefix" {
+  description = "Start of the OIDC subject GitHub issues for this repository (owner@id/repo@id)."
   type        = string
-  default     = "watcharakrit-th/DevOpsVi"
+  default     = "repo:watcharakrit-th@247355252/DevOpsVi@1455186502"
 }
