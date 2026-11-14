@@ -23,6 +23,12 @@ mkdir -p "$local_dir"
 [[ -f "$key" ]] || ssh-keygen -q -t ed25519 -N '' -C miniarcade-node -f "$key"
 [[ -f "$tfvars" ]] || printf 'public_key_path = "%s"\n' "$key.pub" >"$tfvars"
 
+# Ansible needs these for the Alertmanager Secret; check before paying for a node.
+if [[ ! -f "$local_dir/secrets.yml" ]] || grep -qE '^[a-z_]+: *""' "$local_dir/secrets.yml"; then
+  echo "Fill in $local_dir/secrets.yml (gmail_address, gmail_app_password, alert_email) first." >&2
+  exit 1
+fi
+
 my_ip="$(curl -fsS --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')"
 if [[ ! "$my_ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then
   echo "Couldn't read your public IP from checkip.amazonaws.com (got '$my_ip')." >&2
@@ -55,4 +61,5 @@ if kubectl get namespace argocd >/dev/null 2>&1; then
 fi
 if kubectl get namespace monitoring >/dev/null 2>&1; then
   echo "Grafana:  kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80  (then http://localhost:3000)"
+  echo "          user admin, password in $local_dir/grafana-admin-password"
 fi

@@ -70,6 +70,20 @@ This needs the AWS CLI v2 with an IAM Identity Center profile named
    gh variable set ECR_REGISTRY --body "$(terraform output -raw ecr_registry)"
    ```
 
+4. Give Alertmanager a way to send email. Create an app password for the
+   sending Gmail account at https://myaccount.google.com/apppasswords (it
+   needs 2-Step Verification), then fill in `~/.miniarcade/secrets.yml`
+   (`chmod 600`):
+
+   ```yaml
+   gmail_address: "<sending Gmail address>"
+   gmail_app_password: "<app password>"
+   alert_email: "<ALERT_EMAIL>"
+   ```
+
+   `ops/up.sh` refuses to start without it. Ansible turns it into a Kubernetes
+   Secret and never prints it.
+
 ## Each session
 
 ```bash

@@ -18,7 +18,9 @@
       {{ k8s_artifacts }}/cloud-provider-aws/{{ ecr_credential_provider_version }}/linux/amd64/ecr-credential-provider-linux-amd64
     # k3s hands these paths to the kubelet automatically when they exist.
     credential_provider_dir: /var/lib/rancher/credentialprovider
-    local_kubeconfig: "{{ lookup('ansible.builtin.env', 'HOME') }}/.miniarcade/kubeconfig"
+    # Local-only files: secrets.yml, the Grafana password, the kubeconfig.
+    local_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/.miniarcade"
+    local_kubeconfig: "{{ local_dir }}/kubeconfig"
     argocd_chart_version: 10.18.0
     # The repository is public, so Argo CD reads it without credentials.
     argocd_repo_url: https://github.com/watcharakrit-th/DevOpsVi.git
@@ -114,6 +116,46 @@
       retries: 30
       delay: 10
       changed_when: false
+
+    - name: Read ~/.miniarcade/secrets.yml
+      ansible.builtin.include_vars:
+        file: "{{ local_dir }}/secrets.yml"
+        name: secrets
+      no_log: true
+
+    # The message names the fields, never their values.
+    - name: Check that secrets.yml is filled in
+      ansible.builtin.assert:
+        that:
+          - secrets.gmail_address | default('') | length > 0
+          - secrets.gmail_app_password | default('') | length > 0
+          - secrets.alert_email | default('') | length > 0
+        fail_msg: Fill in gmail_address, gmail_app_password and alert_email in ~/.miniarcade/secrets.yml.
+        quiet: true
+
+    - name: Generate the Grafana admin password once, kept in ~/.miniarcade
+      ansible.builtin.set_fact:
+        grafana_admin_password: >-
+          {{ lookup('ansible.builtin.password', local_dir ~ '/grafana-admin-password',
+                    length=32, chars=['ascii_letters', 'digits']) }}
+      no_log: true
+
+    - name: Keep the Grafana password file private
+      ansible.builtin.file:
+        path: "{{ local_dir }}/grafana-admin-password"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    # Sent to kubectl on stdin, so the values never sit in a file on the node
+    # or in a process's arguments.
+    - name: Create the monitoring namespace with the Grafana and Alertmanager Secrets
+      ansible.builtin.command:
+        argv: [k3s, kubectl, apply, -f, "-"]
+        stdin: "{{ lookup('ansible.builtin.template', 'monitoring-secrets.yaml.j2') }}"
+      register: monitoring_secrets
+      changed_when: "'created' in monitoring_secrets.stdout or 'configured' in monitoring_secrets.stdout"
+      no_log: true
 
     # k3s applies any manifest in this folder; its Helm controller installs
     # the chart described there.

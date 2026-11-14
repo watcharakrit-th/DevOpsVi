@@ -1,0 +1,25 @@
+global:
+  # Port 587 with STARTTLS; AWS only restricts outbound port 25.
+  smtp_smarthost: smtp.gmail.com:587
+  smtp_from: {{ secrets.gmail_address | to_json }}
+  smtp_auth_username: {{ secrets.gmail_address | to_json }}
+  # Google shows app passwords in groups of four; the spaces aren't part of it.
+  smtp_auth_password: {{ secrets.gmail_app_password | replace(' ', '') | to_json }}
+  smtp_require_tls: true
+
+route:
+  # By default alerts go nowhere: Watchdog and every built-in alert other
+  # than KubePodCrashLooping end here.
+  receiver: "null"
+  group_by: [alertname, namespace]
+  routes:
+    - receiver: email
+      matchers:
+        - alertname=~"MiniArcadeDown|MiniArcadeHighErrorRate|KubePodCrashLooping"
+
+receivers:
+  - name: "null"
+  - name: email
+    email_configs:
+      - to: {{ secrets.alert_email | to_json }}
+        send_resolved: true

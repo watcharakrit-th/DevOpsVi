@@ -1,0 +1,84 @@
+# Grafana's sidecar loads every ConfigMap labelled grafana_dashboard in its
+# namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: miniarcade-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  miniarcade.json: |
+    {
+      "uid": "miniarcade",
+      "title": "MiniArcade",
+      "tags": ["miniarcade"],
+      "schemaVersion": 39,
+      "time": { "from": "now-1h", "to": "now" },
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Request rate by route",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (route) (rate(http_requests_total{namespace=\"miniarcade\"}[$__rate_interval]))",
+              "legendFormat": "{{route}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "5xx ratio",
+          "description": "Share of requests answered with a 5xx. The alert fires above 5% for 5 minutes.",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "(sum(rate(http_requests_total{namespace=\"miniarcade\", status=~\"5..\"}[$__rate_interval])) or vector(0)) / sum(rate(http_requests_total{namespace=\"miniarcade\"}[$__rate_interval]))",
+              "legendFormat": "5xx ratio"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "p95 latency by route",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket{namespace=\"miniarcade\"}[$__rate_interval])))",
+              "legendFormat": "{{route}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Games finished (selected time range)",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (result) (increase(miniarcade_games_finished_total{namespace=\"miniarcade\"}[$__range]))",
+              "legendFormat": "{{result}}",
+              "instant": true
+            }
+          ]
+        }
+      ]
+    }

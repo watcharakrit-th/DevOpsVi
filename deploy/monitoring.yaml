@@ -1,0 +1,56 @@
+# Prometheus scrapes the app's ops port; the rules alert on it. Both are
+# custom resources that kube-prometheus-stack installs, so the first sync
+# skips their dry run until those definitions exist.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: miniarcade
+  namespace: miniarcade
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: miniarcade
+  endpoints:
+    - port: ops
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: miniarcade
+  namespace: miniarcade
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  groups:
+    - name: miniarcade
+      rules:
+        # From kube-state-metrics, not from the app, so it fires even when
+        # the app can't be scraped at all.
+        - alert: MiniArcadeDown
+          expr: kube_deployment_status_replicas_available{namespace="miniarcade", deployment="miniarcade"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: MiniArcade has no available replicas
+            description: The miniarcade Deployment has had 0 available replicas for 2 minutes; the site is down.
+        # Only with real traffic (over 0.1 req/s), so a lone failed request
+        # at night doesn't page anyone.
+        - alert: MiniArcadeHighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{namespace="miniarcade", status=~"5.."}[5m]))
+              / sum(rate(http_requests_total{namespace="miniarcade"}[5m]))
+            ) > 0.05
+            and
+            sum(rate(http_requests_total{namespace="miniarcade"}[5m])) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Over 5% of MiniArcade requests fail with a 5xx
+            description: '{{ $value | humanizePercentage }} of requests returned 5xx over the last 5 minutes.'
