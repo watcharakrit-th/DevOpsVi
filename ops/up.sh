@@ -51,6 +51,7 @@ echo "kubectl:  export KUBECONFIG=$KUBECONFIG"
 # that part is installed.
 if kubectl get namespace argocd >/dev/null 2>&1; then
   echo "ArgoCD:   kubectl -n argocd port-forward svc/argocd-server 8081:80  (then http://localhost:8081)"
+  echo "          user admin, password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
 fi
 if kubectl get namespace monitoring >/dev/null 2>&1; then
   echo "Grafana:  kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80  (then http://localhost:3000)"

@@ -1,0 +1,26 @@
+# Written by infra/ansible. The one Application not kept in deploy/: it syncs
+# that folder, and any Applications inside it (app of apps).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "{{ argocd_repo_url }}"
+    targetRevision: "{{ argocd_revision }}"
+    path: deploy
+  # No namespace here: every resource in deploy/ names its own.
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

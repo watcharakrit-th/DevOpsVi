@@ -1,0 +1,143 @@
+# Releases app changes: publish builds and pushes the image to ECR; after your
+# approval, deploy points deploy/ at it, and Argo CD rolls it out from there.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: ["app/**"]
+  workflow_dispatch:
+
+# No token permissions by default; each job asks for what it needs.
+permissions: {}
+
+jobs:
+  publish:
+    name: publish
+    # workflow_dispatch can name any branch; only main releases.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Deliberately outside a GitHub Environment: inside one, the OIDC subject
+    # becomes ...:environment:production, which the AWS role doesn't trust.
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      tag: ${{ steps.image.outputs.tag }}
+      image: ${{ steps.image.outputs.image }}
+    env:
+      TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Image name, tagged with the short commit SHA
+        id: image
+        env:
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+        run: |
+          echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "image=$ECR_REGISTRY/miniarcade:${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # Account IDs aren't secret, and a masked one would make GitHub
+          # drop the image output that deploy needs.
+          mask-aws-account-id: false
+      # Tags are immutable: when this commit's image is already in ECR (a
+      # re-run), there is nothing to build and deploy goes ahead with it.
+      - name: Is the tag already in ECR?
+        id: ecr
+        env:
+          TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          if out=$(aws ecr describe-images --repository-name miniarcade --image-ids imageTag="$TAG" 2>&1); then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -q ImageNotFoundException <<<"$out"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$out" >&2
+            exit 1
+          fi
+      # --provenance=false: one image per release. Attestations would add
+      # extra ECR entries and shrink the keep-last-10 rollback window.
+      - name: Build the image
+        if: steps.ecr.outputs.exists == 'false'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: docker build --provenance=false --tag "$IMAGE" app
+      - name: Trivy on the image (the same gate as CI)
+        if: steps.ecr.outputs.exists == 'false'
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE"
+          image --severity CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE"
+      - name: Push to ECR
+        if: steps.ecr.outputs.exists == 'false'
+        env:
+          ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          docker push "$IMAGE"
+
+  deploy:
+    name: deploy
+    needs: publish
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Waits for your approval; the environment only allows main.
+    environment: production
+    # One deploy at a time, and one that has started is never cancelled.
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    # No AWS access. The push uses the deploy key over SSH (the ruleset's
+    # only bypass), not this job's token.
+    permissions:
+      contents: read
+    env:
+      IMAGE: ${{ needs.publish.outputs.image }}
+      TAG: ${{ needs.publish.outputs.tag }}
+    steps:
+      # The latest main, not the commit that triggered the run, with full
+      # history for the ancestor check below.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+      - name: Install kustomize
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
+          echo "cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61  kustomize.tar.gz" | sha256sum -c
+          tar -xzf kustomize.tar.gz kustomize
+      - name: Point deploy/ at the new image
+        run: |
+          deployed="$(sed -n 's/^ *newTag: *//p' deploy/kustomization.yaml)"
+          if [[ "$deployed" == "$TAG" ]]; then
+            echo "$TAG is already deployed."
+            exit 0
+          fi
+          # Never go backwards: if the deployed tag is a commit that isn't an
+          # ancestor of this one, a newer release (or a rollback) is in place,
+          # so re-running an old run changes nothing.
+          if git rev-parse --quiet --verify "$deployed^{commit}" >/dev/null &&
+            ! git merge-base --is-ancestor "$deployed" "$GITHUB_SHA"; then
+            echo "Deployed $deployed is not an ancestor of $TAG; leaving deploy/ as it is."
+            exit 0
+          fi
+          (cd deploy && "$RUNNER_TEMP/kustomize" edit set image "miniarcade=$IMAGE")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --quiet -m "deploy: $TAG" -- deploy/kustomization.yaml
+          # main may have moved since the checkout: rebase once and retry.
+          if ! git push origin HEAD:main; then
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi

@@ -1,7 +1,8 @@
 ---
 # Turns the fresh Ubuntu node into a single-node k3s cluster that pulls from
-# ECR with its instance profile, then writes ~/.miniarcade/kubeconfig. Safe to
-# re-run: each step only acts when something differs.
+# ECR with its instance profile, installs Argo CD with a root Application that
+# syncs deploy/, then writes ~/.miniarcade/kubeconfig. Safe to re-run: each
+# step only acts when something differs.
 - name: Set up the MiniArcade node
   hosts: node
   become: true
@@ -18,6 +19,10 @@
     # k3s hands these paths to the kubelet automatically when they exist.
     credential_provider_dir: /var/lib/rancher/credentialprovider
     local_kubeconfig: "{{ lookup('ansible.builtin.env', 'HOME') }}/.miniarcade/kubeconfig"
+    argocd_chart_version: 10.18.0
+    # The repository is public, so Argo CD reads it without credentials.
+    argocd_repo_url: https://github.com/watcharakrit-th/DevOpsVi.git
+    argocd_revision: main
 
   pre_tasks:
     - name: Wait for SSH (a new instance needs a minute to boot)
@@ -109,6 +114,39 @@
       retries: 30
       delay: 10
       changed_when: false
+
+    # k3s applies any manifest in this folder; its Helm controller installs
+    # the chart described there.
+    - name: Install Argo CD from its pinned Helm chart
+      ansible.builtin.template:
+        src: argocd.yaml.j2
+        dest: /var/lib/rancher/k3s/server/manifests/argocd.yaml
+        mode: "0600"
+
+    - name: Wait for Argo CD
+      ansible.builtin.command:
+        argv: [k3s, kubectl, -n, argocd, rollout, status, "{{ item }}", --timeout=10s]
+      loop:
+        - deployment/argocd-server
+        - deployment/argocd-repo-server
+        - statefulset/argocd-application-controller
+      register: argocd_rollout
+      until: argocd_rollout.rc == 0
+      retries: 60
+      delay: 10
+      changed_when: false
+
+    - name: Write the root Application
+      ansible.builtin.template:
+        src: root-app.yaml.j2
+        dest: /var/lib/rancher/k3s/server/root-app.yaml
+        mode: "0600"
+
+    - name: Apply the root Application, which syncs deploy/ (app of apps)
+      ansible.builtin.command:
+        argv: [k3s, kubectl, apply, -f, /var/lib/rancher/k3s/server/root-app.yaml]
+      register: root_app
+      changed_when: "'unchanged' not in root_app.stdout"
 
     - name: Read the cluster's kubeconfig
       ansible.builtin.slurp:
