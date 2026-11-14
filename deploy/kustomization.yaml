@@ -5,6 +5,11 @@ resources:
 - app.yaml
 - redis.yaml
 - ingress.yaml
+- monitoring.yaml
+- dashboard.yaml
+- apps/kube-prometheus-stack.yaml
+- apps/loki.yaml
+- apps/alloy.yaml
 images:
 - name: miniarcade
   newName: <AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com/miniarcade

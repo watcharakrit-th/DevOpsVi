@@ -1,0 +1,76 @@
+# Prometheus, Alertmanager, Grafana, kube-state-metrics and node-exporter.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 93.3.0
+    helm:
+      valuesObject:
+        # k3s runs these inside its own process, where they can't be scraped;
+        # their scrapes and rules would only produce false alerts.
+        kubeEtcd:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        defaultRules:
+          rules:
+            etcd: false
+            kubeSchedulerAlerting: false
+            kubeSchedulerRecording: false
+            kubeControllerManager: false
+            kubeProxy: false
+        prometheus:
+          prometheusSpec:
+            retention: 3d
+            # Pick up every ServiceMonitor, rule and probe in the cluster, not
+            # only those labelled for this release.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            scrapeConfigSelectorNilUsesHelmValues: false
+        alertmanager:
+          alertmanagerSpec:
+            # The whole config (Gmail login, alert address, routes) is a
+            # Secret that infra/ansible writes from ~/.miniarcade/secrets.yml.
+            configSecret: alertmanager-miniarcade
+        grafana:
+          admin:
+            # Also written by infra/ansible; the password is generated once
+            # and kept in ~/.miniarcade/grafana-admin-password.
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              uid: loki
+              url: http://loki.monitoring.svc.cluster.local:3100
+              access: proxy
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # The chart's CRDs are too big for client-side apply's annotation.
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
